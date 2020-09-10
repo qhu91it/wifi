@@ -3,7 +3,10 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/android.iml" filepath="$PROJECT_DIR$/android.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/app/android-app.iml" filepath="$PROJECT_DIR$/.idea/modules/app/android-app.iml" group="android/app" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/-1626305596/com.ly.wifi-wifi.iml" filepath="$PROJECT_DIR$/.idea/modules/-1626305596/com.ly.wifi-wifi.iml" group="android/wifi" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/example-android.iml" filepath="$PROJECT_DIR$/.idea/modules/example-android.iml" group="android" />
       <module fileurl="file://$PROJECT_DIR$/../../android/wifi.iml" filepath="$PROJECT_DIR$/../../android/wifi.iml" />
     </modules>
   </component>
