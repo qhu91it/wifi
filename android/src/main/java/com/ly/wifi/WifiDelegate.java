@@ -7,7 +7,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
-import android.net.ConnectivityManager.NetworkCallback;
 import android.net.NetworkInfo;
 import android.net.NetworkRequest;
 import android.net.NetworkCapabilities;
@@ -24,6 +23,7 @@ import android.util.Log;
 import android.text.TextUtils;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import androidx.core.app.ActivityCompat;
 
 import java.net.Inet4Address;
@@ -93,6 +93,7 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
         this.result = result;
         this.methodCall = methodCall;
         this.permissionManager = permissionManager;
+        this.connectivityManager = (ConnectivityManager)activity.getApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
     }
 
     public void getSSID(MethodCall methodCall, MethodChannel.Result result) {
@@ -265,15 +266,15 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
 
             NetworkRequest networkRequest = new NetworkRequest.Builder()
                     .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     .setNetworkSpecifier(wifiNetworkSpecifier)
                     .build();
-
-            connectivityManager = (ConnectivityManager)activity.getSystemService(Context.CONNECTIVITY_SERVICE);
 
             networkCallback = new ConnectivityManager.NetworkCallback() {
                 @Override
                 public void onAvailable(@NonNull Network network) {
                     super.onAvailable(network);
+                    Log.d("NetworkCallback", "onAvailable");
                     connectivityManager.bindProcessToNetwork(network);
                     new Handler(Looper.getMainLooper()).post(new Runnable() {
                         @Override
@@ -283,12 +284,25 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
                         }
                     });
                 }
+
+                @Override
+                public void onUnavailable() {
+                    super.onUnavailable();
+                    Log.d("NetworkCallback", "onUnavailable");
+                    networkConnectUnable();
+                }
+
+                @Override
+                public void onLost(@NonNull Network network) {
+                    super.onLost(network);
+                    Log.d("NetworkCallback", "onLost");
+                    networkConnectUnable();
+                }
             };
             connectivityManager.requestNetwork(networkRequest, networkCallback);
             return;
         }
         boolean isReconnect = enableNetwork(ssid);
-        Log.i("connection", "isReconnect " + isReconnect + " ssid " + ssid);
         if (isReconnect) {
             result.success(1);
             clearMethodCallAndResult();
@@ -300,7 +314,6 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
             return;
         }
         int netId = wifiManager.addNetwork(wifiConfig);
-        Log.i("connection", "NetId " + netId);
         if (netId == -1) {
             result.success(0);
             clearMethodCallAndResult();
@@ -311,11 +324,10 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
                 wifiManager.saveConfiguration();
                 wifiManager.disconnect();
                 boolean isEnable = wifiManager.enableNetwork(netId, true);
-                Log.i("connection", "enableNetwork " + isEnable);
                 wifiManager.reconnect();
                 result.success(1);
                 // >> HELBER
-                // ConnectivityManager connection_manager = 
+                // ConnectivityManager connection_manager =
                 // (ConnectivityManager) activity.getApplication().getSystemService(Context.CONNECTIVITY_SERVICE);
                 // NetworkRequest.Builder request = new NetworkRequest.Builder();
                 // request.addTransportType(NetworkCapabilities.TRANSPORT_WIFI);
@@ -325,7 +337,7 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
                 //         ConnectivityManager.setProcessDefaultNetwork(network);
                 //     }
                 // });
-                
+
                 // final ConnectivityManager manager = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
                 // NetworkRequest.Builder builder;
                 // builder = new NetworkRequest.Builder();
@@ -348,21 +360,25 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
                 // }
                 // << HELBER
                 // >> Pileggi
-                ConnectivityManager connectivityManager = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
                 Network etherNetwork = null;
-                for (Network network : connectivityManager.getAllNetworks()) {
-                    NetworkInfo networkInfo = connectivityManager.getNetworkInfo(network);
-                    if (networkInfo.getType() == ConnectivityManager.TYPE_ETHERNET) {
-                        etherNetwork = network;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    ConnectivityManager connectivityManager = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+                    for (Network network : connectivityManager.getAllNetworks()) {
+                        NetworkInfo networkInfo = connectivityManager.getNetworkInfo(network);
+                        if (networkInfo.getType() == ConnectivityManager.TYPE_ETHERNET) {
+                            etherNetwork = network;
+                        }
                     }
                 }
                 // Android 6
-                Network boundNetwork = connectivityManager.getBoundNetworkForProcess();
-                if (boundNetwork != null) {
-                    NetworkInfo boundNetworkInfo = connectivityManager.getNetworkInfo(boundNetwork);
-                    if (boundNetworkInfo.getType() != ConnectivityManager.TYPE_ETHERNET) {
-                        if (etherNetwork != null) {
-                            connectivityManager.bindProcessToNetwork(etherNetwork);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    Network boundNetwork = connectivityManager.getBoundNetworkForProcess();
+                    if (boundNetwork != null) {
+                        NetworkInfo boundNetworkInfo = connectivityManager.getNetworkInfo(boundNetwork);
+                        if (boundNetworkInfo.getType() != ConnectivityManager.TYPE_ETHERNET) {
+                            if (etherNetwork != null) {
+                                connectivityManager.bindProcessToNetwork(etherNetwork);
+                            }
                         }
                     }
                 }
@@ -376,6 +392,7 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
 
     private void disconnect() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            connectivityManager.bindProcessToNetwork(null);
             connectivityManager.unregisterNetworkCallback(networkCallback);
             networkCallback = null;
             result.success(1);
@@ -400,6 +417,21 @@ WifiDelegate implements PluginRegistry.RequestPermissionsResultListener {
         //wifiManager.removeNetwork(netId);
         result.success(1);
         clearMethodCallAndResult();
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+    private void networkConnectUnable() {
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                if (result != null) {
+                    result.success(0);
+                    clearMethodCallAndResult();
+                }
+            }
+        });
+        connectivityManager.unregisterNetworkCallback(networkCallback);
+        networkCallback = null;
     }
 
     private WifiConfiguration createWifiConfig(String ssid, String Password) {
